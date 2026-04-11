@@ -13,7 +13,7 @@ app = FastAPI(title="Stock Dashboard Backend", version="0.2.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+    allow_origins=["http://localhost:5173", "http://localhost:5174", "http://localhost:5175", "http://localhost:5176", "http://localhost:5177", "http://localhost:5178"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -133,6 +133,63 @@ def _df_to_records(df) -> list:
 
 
 # ---------------------------------------------------------------------------
+# Summary metrics
+# ---------------------------------------------------------------------------
+def _compute_summary_metrics(df) -> dict:
+    """Compute last_close, period_return, and volatility_20d from a clean OHLCV DataFrame."""
+    import pandas as pd
+
+    close = df["Close"].dropna().astype(float)
+    if close.empty:
+        return {"last_close": None, "period_return": None, "volatility_20d": None}
+
+    last_close   = round(float(close.iloc[-1]), 4)
+    first_close  = float(close.iloc[0])
+    period_return = round(((last_close - first_close) / first_close) * 100, 2) if first_close else None
+
+    daily_returns = close.pct_change()
+    vol_series    = daily_returns.rolling(20).std() * 100
+    last_vol      = vol_series.dropna()
+    volatility_20d = round(float(last_vol.iloc[-1]), 2) if not last_vol.empty else None
+
+    return {
+        "last_close":    last_close,
+        "period_return": period_return,
+        "volatility_20d": volatility_20d,
+    }
+
+
+def _compute_data_summary(df) -> dict:
+    """Compute date_coverage, row_count, missing_value_count, and warnings[]."""
+    warnings = []
+
+    row_count = len(df)
+
+    # Date coverage — first and last Date strings
+    dates = df["Date"].dropna()
+    date_start = str(dates.iloc[0])  if not dates.empty else None
+    date_end   = str(dates.iloc[-1]) if not dates.empty else None
+    date_coverage = f"{date_start} to {date_end}" if date_start and date_end else None
+
+    # Missing value count across all OHLCV columns
+    ohlcv_cols = ["Open", "High", "Low", "Close", "Volume"]
+    missing_value_count = int(df[ohlcv_cols].isnull().sum().sum())
+
+    if missing_value_count > 0:
+        warnings.append(f"{missing_value_count} missing value(s) detected in OHLCV data.")
+
+    if row_count == 0:
+        warnings.append("No data returned for the requested ticker and period.")
+
+    return {
+        "date_coverage":       date_coverage,
+        "row_count":           row_count,
+        "missing_value_count": missing_value_count,
+        "warnings":            warnings,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Technical indicators
 # ---------------------------------------------------------------------------
 def _safe_list(series) -> list:
@@ -208,14 +265,12 @@ def ohlcv(
     cached_records = _cache_get(cache_key, ttl)
 
     if cached_records is not None:
-        # Recompute indicators on the cached raw data if needed
-        if indicator_list:
-            import pandas as pd
-            df_cached = pd.DataFrame(cached_records)
-            inds = _compute_indicators(df_cached, indicator_list)
-        else:
-            inds = {}
-        return {"ticker": ticker, "data": cached_records, "indicators": inds}
+        import pandas as pd
+        df_cached = pd.DataFrame(cached_records)
+        inds    = _compute_indicators(df_cached, indicator_list) if indicator_list else {}
+        metrics = _compute_summary_metrics(df_cached)
+        summary = _compute_data_summary(df_cached)
+        return {"ticker": ticker, "data": cached_records, "indicators": inds, "metrics": metrics, "summary": summary}
 
     # Fetch from Yahoo Finance
     try:
@@ -224,15 +279,18 @@ def ohlcv(
         raise HTTPException(status_code=502, detail=f"Yahoo Finance error: {exc}")
 
     if df is None or df.empty:
-        return {"ticker": ticker, "data": [], "indicators": {}}
+        empty_summary = {"date_coverage": None, "row_count": 0, "missing_value_count": 0, "warnings": ["No data returned for the requested ticker and period."]}
+        return {"ticker": ticker, "data": [], "indicators": {}, "metrics": {"last_close": None, "period_return": None, "volatility_20d": None}, "summary": empty_summary}
 
     df = _flatten_df(df)
     records = _df_to_records(df)
     _cache_set(cache_key, records)
 
-    inds = _compute_indicators(df, indicator_list) if indicator_list else {}
+    inds    = _compute_indicators(df, indicator_list) if indicator_list else {}
+    metrics = _compute_summary_metrics(df)
+    summary = _compute_data_summary(df)
 
-    return {"ticker": ticker, "data": records, "indicators": inds}
+    return {"ticker": ticker, "data": records, "indicators": inds, "metrics": metrics, "summary": summary}
 
 
 @app.get("/compare")

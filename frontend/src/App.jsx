@@ -71,13 +71,13 @@ function CandlestickChart({ rows, height = 430, selectedIndicators, indicatorDat
       {/* Grid */}
       {yTicks.map((t, i) => (
         <line key={i} x1={padL} y1={toY(t)} x2={W - padR} y2={toY(t)}
-          stroke="#374151" strokeWidth={0.6} />
+          stroke="#e2e8f0" strokeWidth={0.6} />
       ))}
 
       {/* Y-axis labels */}
       {yTicks.map((t, i) => (
         <text key={i} x={padL - 6} y={toY(t) + 4}
-          fill="#9ca3af" fontSize={15} textAnchor="end">
+          fill="#94a3b8" fontSize={15} textAnchor="end">
           {t >= 1000 ? t.toFixed(0) : t.toFixed(2)}
         </text>
       ))}
@@ -144,6 +144,8 @@ export default function App() {
   const [selectedIndicators, setSelectedInds] = useState([]);
   const [rows, setRows]                       = useState([]);
   const [indicatorData, setIndicatorData]     = useState({});
+  const [metrics, setMetrics]                 = useState(null);
+  const [summary, setSummary]                 = useState(null);
   const [loading, setLoading]                 = useState(false);
   const [error, setError]                     = useState(null);
 
@@ -175,16 +177,46 @@ export default function App() {
     setError(null);
     try {
       const url = `${API}/ohlcv?ticker=${ticker}&period=${period}&interval=${interval}&indicators=${selectedIndicators.join(",")}`;
-      const res = await fetch(url);
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.detail || `HTTP ${res.status}`);
+      let res;
+      try {
+        res = await fetch(url);
+      } catch {
+        setError({ type: "network", message: "Cannot connect to the backend server. Make sure FastAPI is running on port 8000." });
+        return;
       }
+
+      if (res.status === 400) {
+        const err = await res.json().catch(() => ({}));
+        setError({ type: "validation", message: err.detail || "Invalid request parameters. Check the ticker, period, and interval." });
+        return;
+      }
+      if (res.status === 502) {
+        setError({ type: "provider", message: "Yahoo Finance is currently unavailable. Please try again in a moment." });
+        return;
+      }
+      if (!res.ok) {
+        setError({ type: "network", message: `Unexpected server error (HTTP ${res.status}). Please try again.` });
+        return;
+      }
+
       const json = await res.json();
-      setRows(json.data || []);
+      const data = json.data || [];
+
+      if (data.length === 0) {
+        setError({ type: "empty", message: `No data found for "${ticker}" with the selected period and interval. Try a broader date range or a different interval.` });
+        setRows([]);
+        setIndicatorData({});
+        setMetrics(null);
+        setSummary(json.summary || null);
+        return;
+      }
+
+      setRows(data);
       setIndicatorData(json.indicators || {});
+      setMetrics(json.metrics || null);
+      setSummary(json.summary || null);
     } catch (e) {
-      setError(e.message || "Backend not reachable. Make sure FastAPI is running on port 8000.");
+      setError({ type: "network", message: e.message || "An unexpected error occurred." });
     } finally {
       setLoading(false);
     }
@@ -196,14 +228,31 @@ export default function App() {
     setError(null);
     try {
       const url = `${API}/compare?tickers=${compareTickers.join(",")}&period=${period}&interval=${interval}`;
-      const res = await fetch(url);
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.detail || `HTTP ${res.status}`);
+      let res;
+      try {
+        res = await fetch(url);
+      } catch {
+        setError({ type: "network", message: "Cannot connect to the backend server. Make sure FastAPI is running on port 8000." });
+        return;
       }
+
+      if (res.status === 400) {
+        const err = await res.json().catch(() => ({}));
+        setError({ type: "validation", message: err.detail || "Invalid tickers or parameters for comparison." });
+        return;
+      }
+      if (res.status === 502) {
+        setError({ type: "provider", message: "Yahoo Finance is currently unavailable. Please try again in a moment." });
+        return;
+      }
+      if (!res.ok) {
+        setError({ type: "network", message: `Unexpected server error (HTTP ${res.status}). Please try again.` });
+        return;
+      }
+
       setCompareData(await res.json());
     } catch (e) {
-      setError(e.message || "Comparison failed.");
+      setError({ type: "network", message: e.message || "Comparison failed unexpectedly." });
     } finally {
       setCompareLoading(false);
     }
@@ -239,207 +288,389 @@ export default function App() {
     : [];
 
   // ── styles ────────────────────────────────────────────────────────────────
-  const card       = { border: "1px solid #374151", borderRadius: 10, padding: "20px 26px", marginBottom: 20, background: "#1f2937" };
+  const card       = { border: "1px solid #e2e8f0", borderRadius: 10, padding: "20px 26px", marginBottom: 20, background: "#ffffff" };
   const btnBase    = { padding: "11px 22px", borderRadius: 7, border: "none", cursor: "pointer", fontWeight: 600, fontSize: 17 };
   const btnPrimary = { ...btnBase, background: "#3b82f6", color: "#fff" };
-  const btnSec     = { ...btnBase, background: "#374151", color: "#d1d5db" };
-  const lbl        = { fontSize: 16, color: "#9ca3af", marginBottom: 6, display: "block" };
-  const sel        = { padding: "10px 14px", background: "#111827", color: "#e5e7eb", border: "1px solid #374151", borderRadius: 6, fontSize: 16 };
-  const inp        = { ...sel, minWidth: 120 };
-  const ttStyle    = { background: "#1f2937", border: "1px solid #374151", color: "#e5e7eb" };
+  const btnSec     = { ...btnBase, background: "#f1f5f9", color: "#475569" };
+  const lbl        = { fontSize: 13, fontWeight: 600, color: "#475569", marginBottom: 5, display: "block", textTransform: "uppercase", letterSpacing: "0.04em" };
+  const sel        = { padding: "9px 12px", background: "#ffffff", color: "#1e293b", border: "1px solid #cbd5e1", borderRadius: 6, fontSize: 14 };
+  const ttStyle    = { background: "#ffffff", border: "1px solid #e2e8f0", color: "#1e293b" };
+  const sectionHdr = { margin: "0 0 12px 0", fontSize: 11, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.08em" };
+
+  const fullSel = { ...sel, width: "100%", boxSizing: "border-box" };
 
   return (
-    <div style={{ padding: "28px 36px", fontFamily: "system-ui,sans-serif", background: "#111827", minHeight: "100vh", color: "#e5e7eb", fontSize: 16 }}>
-      <h2 style={{ margin: "0 0 20px 0", fontSize: 34, fontWeight: 700, color: "#f9fafb" }}>
-        Stock Trends Analysis Dashboard
-      </h2>
+    <div style={{ display: "flex", minHeight: "100vh", fontFamily: "system-ui,sans-serif", fontSize: 16, color: "#1e293b" }}>
 
-      {/* Controls */}
-      <div style={{ ...card, display: "flex", flexWrap: "wrap", gap: 14, alignItems: "flex-end" }}>
-        <div><span style={lbl}>Ticker</span>
-          <input value={ticker} onChange={(e) => setTicker(e.target.value.toUpperCase())}
-            placeholder="e.g. NVDA" style={{ ...inp, width: 90 }} />
+      {/* ── LEFT SIDEBAR ── */}
+      <aside style={{
+        width: 272,
+        minHeight: "100vh",
+        background: "#ffffff",
+        borderRight: "1px solid #e2e8f0",
+        padding: "24px 20px",
+        flexShrink: 0,
+        overflowY: "auto",
+        boxSizing: "border-box",
+      }}>
+        {/* Sidebar title */}
+        <div style={{ marginBottom: 24, paddingBottom: 16, borderBottom: "1px solid #e2e8f0" }}>
+          <h2 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: "#0f172a", lineHeight: 1.4 }}>
+            Stock Trends Analysis Dashboard
+          </h2>
         </div>
-        <div><span style={lbl}>Period</span>
-          <select value={period} onChange={(e) => setPeriod(e.target.value)} style={sel}>
-            <option value="1d">1 day</option><option value="5d">5 days</option>
-            <option value="1mo">1 month</option><option value="3mo">3 months</option>
-            <option value="6mo">6 months</option><option value="1y">1 year</option>
-            <option value="2y">2 years</option><option value="5y">5 years</option>
-            <option value="10y">10 years</option><option value="ytd">Year to date</option>
-            <option value="max">Max</option>
-          </select>
-        </div>
-        <div><span style={lbl}>Interval</span>
-          <select value={interval} onChange={(e) => setIntervalVal(e.target.value)} style={sel}>
-            <option value="1m">1 min</option><option value="5m">5 min</option>
-            <option value="15m">15 min</option><option value="30m">30 min</option>
-            <option value="1h">1 hour</option><option value="1d">1 day</option>
-            <option value="1wk">1 week</option><option value="1mo">1 month</option>
-          </select>
-        </div>
-        <div><span style={lbl}>Chart Type</span>
-          <div style={{ display: "flex", gap: 4 }}>
-            {["candle","line"].map((t) => (
-              <button key={t} onClick={() => setChartType(t)}
-                style={{ ...btnBase, background: chartType === t ? "#3b82f6" : "#374151", color: chartType === t ? "#fff" : "#d1d5db" }}>
-                {t === "candle" ? "Candlestick" : "Line"}
-              </button>
-            ))}
-          </div>
-        </div>
-        <button onClick={analyze} style={{ ...btnPrimary, alignSelf: "flex-end" }} disabled={loading}>
-          {loading ? "Loading…" : "Analyze"}
-        </button>
-      </div>
 
-      {/* Indicators */}
-      <div style={{ ...card, display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center" }}>
-        <span style={{ fontSize: 16, color: "#9ca3af", marginRight: 8 }}>Indicators:</span>
-        {INDICATOR_OPTIONS.map(({ key, label, color }) => (
-          <label key={key} style={{ display: "flex", alignItems: "center", gap: 7, cursor: "pointer", fontSize: 16, userSelect: "none" }}>
-            <input type="checkbox" checked={selectedIndicators.includes(key)} onChange={() => toggleIndicator(key)} />
-            <span style={{ color }}>{label}</span>
-          </label>
-        ))}
-      </div>
+        {/* ── CONTROLS SECTION ── */}
+        <p style={sectionHdr}>Controls</p>
 
-      {/* Error */}
-      {error && (
-        <div style={{ ...card, background: "#7f1d1d", border: "1px solid #ef4444", color: "#fca5a5" }}>
-          {error}
-        </div>
-      )}
+        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
 
-      {/* Charts */}
-      {hasData && (
-        <>
-          {/* Price */}
-          <div style={card}>
-            <h3 style={{ margin: "0 0 12px 0", fontSize: 22, color: "#f3f4f6" }}>{ticker} Price</h3>
-            {chartType === "candle" ? (
-              <CandlestickChart
-                rows={rows}
-                height={430}
-                selectedIndicators={selectedIndicators}
-                indicatorData={indicatorData}
-              />
-            ) : (
-              <ResponsiveContainer width="100%" height={430}>
-                <LineChart data={chartData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-                  <XAxis dataKey="date" hide />
-                  <YAxis domain={["auto","auto"]} stroke="#6b7280" />
-                  <Tooltip contentStyle={ttStyle} />
-                  <Legend />
-                  <Line type="monotone" dataKey="close"  dot={false} stroke="#60a5fa" name="Close" strokeWidth={1.5} />
-                  {showBB && <Line type="monotone" dataKey="BB_upper"  dot={false} stroke="#a78bfa" name="BB Upper"  strokeDasharray="4 2" strokeWidth={1} />}
-                  {showBB && <Line type="monotone" dataKey="BB_middle" dot={false} stroke="#a78bfa" name="BB Mid"    strokeWidth={1} />}
-                  {showBB && <Line type="monotone" dataKey="BB_lower"  dot={false} stroke="#a78bfa" name="BB Lower"  strokeDasharray="4 2" strokeWidth={1} />}
-                </LineChart>
-              </ResponsiveContainer>
-            )}
+          {/* Ticker */}
+          <div>
+            <span style={lbl}>Ticker</span>
+            <input value={ticker} onChange={(e) => setTicker(e.target.value.toUpperCase())}
+              placeholder="e.g. NVDA" style={fullSel} />
           </div>
 
-          {/* RSI */}
-          {showRSI && (
-            <div style={card}>
-              <h3 style={{ margin: "0 0 10px 0", fontSize: 20, color: "#f3f4f6" }}>RSI (14)</h3>
-              <ResponsiveContainer width="100%" height={160}>
-                <LineChart data={chartData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-                  <XAxis dataKey="date" hide />
-                  <YAxis domain={[0,100]} stroke="#6b7280" ticks={[0,30,50,70,100]} />
-                  <Tooltip contentStyle={ttStyle} />
-                  <ReferenceLine y={70} stroke="#ef4444" strokeDasharray="3 3" label={{ value:"70", fill:"#ef4444", fontSize:12 }} />
-                  <ReferenceLine y={30} stroke="#22c55e" strokeDasharray="3 3" label={{ value:"30", fill:"#22c55e", fontSize:12 }} />
-                  <Line type="monotone" dataKey="RSI" dot={false} stroke="#38bdf8" strokeWidth={1.5} />
-                </LineChart>
-              </ResponsiveContainer>
+          {/* Period */}
+          <div>
+            <span style={lbl}>Date Range</span>
+            <select value={period} onChange={(e) => setPeriod(e.target.value)} style={fullSel}>
+              <option value="1d">1 day</option>
+              <option value="5d">5 days</option>
+              <option value="1mo">1 month</option>
+              <option value="3mo">3 months</option>
+              <option value="6mo">6 months</option>
+              <option value="1y">1 year</option>
+              <option value="2y">2 years</option>
+              <option value="5y">5 years</option>
+              <option value="10y">10 years</option>
+              <option value="ytd">Year to date</option>
+              <option value="max">Max</option>
+            </select>
+          </div>
+
+          {/* Interval */}
+          <div>
+            <span style={lbl}>Interval</span>
+            <select value={interval} onChange={(e) => setIntervalVal(e.target.value)} style={fullSel}>
+              <option value="1m">1 min</option>
+              <option value="5m">5 min</option>
+              <option value="15m">15 min</option>
+              <option value="30m">30 min</option>
+              <option value="1h">1 hour</option>
+              <option value="1d">1 day</option>
+              <option value="1wk">1 week</option>
+              <option value="1mo">1 month</option>
+            </select>
+          </div>
+
+          {/* Chart Type */}
+          <div>
+            <span style={lbl}>Chart Type</span>
+            <div style={{ display: "flex", gap: 6 }}>
+              {["candle", "line"].map((t) => (
+                <button key={t} onClick={() => setChartType(t)}
+                  style={{
+                    ...btnBase, flex: 1, fontSize: 14, padding: "8px 0",
+                    background: chartType === t ? "#3b82f6" : "#f1f5f9",
+                    color:      chartType === t ? "#fff"    : "#475569",
+                    border:     chartType === t ? "none"    : "1px solid #e2e8f0",
+                  }}>
+                  {t === "candle" ? "Candlestick" : "Line"}
+                </button>
+              ))}
             </div>
-          )}
-
-          {/* MACD */}
-          {showMACD && (
-            <div style={card}>
-              <h3 style={{ margin: "0 0 10px 0", fontSize: 20, color: "#f3f4f6" }}>MACD</h3>
-              <ResponsiveContainer width="100%" height={160}>
-                <ComposedChart data={chartData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-                  <XAxis dataKey="date" hide />
-                  <YAxis stroke="#6b7280" />
-                  <Tooltip contentStyle={ttStyle} />
-                  <ReferenceLine y={0} stroke="#6b7280" />
-                  <Bar dataKey="MACD_hist" fill="#6b7280" name="Histogram" opacity={0.7} />
-                  <Line type="monotone" dataKey="MACD"        dot={false} stroke="#fb7185" name="MACD"   strokeWidth={1.5} />
-                  <Line type="monotone" dataKey="MACD_signal" dot={false} stroke="#fbbf24" name="Signal" strokeWidth={1.5} />
-                  <Legend />
-                </ComposedChart>
-              </ResponsiveContainer>
-            </div>
-          )}
-
-          {/* Volume */}
-          <div style={card}>
-            <h3 style={{ margin: "0 0 10px 0", fontSize: 20, color: "#f3f4f6" }}>{ticker} Volume</h3>
-            <ResponsiveContainer width="100%" height={180}>
-              <BarChart data={chartData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-                <XAxis dataKey="date" hide />
-                <YAxis stroke="#6b7280" />
-                <Tooltip contentStyle={ttStyle} />
-                <Bar dataKey="volume" fill="#3b82f6" opacity={0.7} />
-              </BarChart>
-            </ResponsiveContainer>
           </div>
-        </>
-      )}
 
-      {!hasData && !loading && !error && (
-        <div style={{ ...card, color: "#6b7280" }}>Enter a ticker and click Analyze.</div>
-      )}
+          {/* Indicators */}
+          <div>
+            <span style={lbl}>Indicators</span>
+            <div style={{ display: "flex", flexDirection: "column", gap: 9, padding: "10px 12px", background: "#f8fafc", borderRadius: 7, border: "1px solid #e2e8f0" }}>
+              {INDICATOR_OPTIONS.map(({ key, label, color }) => (
+                <label key={key} style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", fontSize: 14, userSelect: "none" }}>
+                  <input type="checkbox" checked={selectedIndicators.includes(key)} onChange={() => toggleIndicator(key)} />
+                  <span style={{ color, fontWeight: 500 }}>{label}</span>
+                </label>
+              ))}
+            </div>
+          </div>
 
-      {/* Comparison */}
-      <div style={{ ...card, marginTop: 20 }}>
-        <h3 style={{ margin: "0 0 14px 0", fontSize: 22, color: "#f3f4f6" }}>Multi-Ticker Comparison</h3>
-        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-          <input value={compareInput} onChange={(e) => setCompareInput(e.target.value.toUpperCase())}
-            onKeyDown={(e) => e.key === "Enter" && addCompareTicker()}
-            placeholder="Add ticker…" style={{ ...inp, width: 110 }} />
-          <button onClick={addCompareTicker} style={btnSec}>Add</button>
-          {compareTickers.map((t, i) => (
-            <span key={t} style={{ background: COMPARE_COLORS[i%5]+"33", color: COMPARE_COLORS[i%5], border:`1px solid ${COMPARE_COLORS[i%5]}`, padding:"3px 10px", borderRadius:20, fontSize:14, display:"flex", alignItems:"center", gap:5 }}>
-              {t}
-              <button onClick={() => removeCompareTicker(t)} style={{ background:"none", border:"none", cursor:"pointer", color:"inherit", padding:0 }}>×</button>
-            </span>
-          ))}
+          {/* Analyze button */}
+          <button
+            onClick={analyze}
+            disabled={loading}
+            style={{ ...btnPrimary, width: "100%", padding: "11px 0", fontSize: 15, marginTop: 4, opacity: loading ? 0.7 : 1 }}>
+            {loading ? "Loading…" : "Analyze"}
+          </button>
+
+        </div>
+
+        {/* ── COMPARE SECTION ── */}
+        <div style={{ marginTop: 24, paddingTop: 20, borderTop: "1px solid #e2e8f0" }}>
+          <p style={sectionHdr}>Compare Tickers</p>
+          <p style={{ margin: "0 0 10px 0", fontSize: 12, color: "#94a3b8" }}>Up to 5 tickers, normalized to 100</p>
+
+          <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
+            <input
+              value={compareInput}
+              onChange={(e) => setCompareInput(e.target.value.toUpperCase())}
+              onKeyDown={(e) => e.key === "Enter" && addCompareTicker()}
+              placeholder="Add ticker…"
+              style={{ ...sel, flex: 1, boxSizing: "border-box", fontSize: 14 }} />
+            <button onClick={addCompareTicker} style={{ ...btnSec, padding: "8px 12px", fontSize: 14, border: "1px solid #e2e8f0" }}>Add</button>
+          </div>
+
           {compareTickers.length > 0 && (
-            <button onClick={compareStocks} style={btnPrimary} disabled={compareLoading}>
-              {compareLoading ? "Loading…" : "Compare"}
-            </button>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginBottom: 10 }}>
+              {compareTickers.map((t, i) => (
+                <span key={t} style={{
+                  background: COMPARE_COLORS[i % 5] + "18",
+                  color: COMPARE_COLORS[i % 5],
+                  border: `1px solid ${COMPARE_COLORS[i % 5]}`,
+                  padding: "3px 8px", borderRadius: 20, fontSize: 12,
+                  display: "flex", alignItems: "center", gap: 4,
+                }}>
+                  {t}
+                  <button onClick={() => removeCompareTicker(t)}
+                    style={{ background: "none", border: "none", cursor: "pointer", color: "inherit", padding: 0, fontSize: 14, lineHeight: 1 }}>
+                    ×
+                  </button>
+                </span>
+              ))}
+            </div>
           )}
+
+          <button
+            onClick={compareStocks}
+            disabled={compareLoading || compareTickers.length === 0}
+            style={{ ...btnPrimary, width: "100%", padding: "9px 0", fontSize: 14, opacity: (compareLoading || compareTickers.length === 0) ? 0.5 : 1 }}>
+            {compareLoading ? "Loading…" : "Run Compare"}
+          </button>
         </div>
 
+        {/* ── DATA SUMMARY INFO BAR ── */}
+        {summary && (
+          <div style={{ marginTop: 24, paddingTop: 20, borderTop: "1px solid #e2e8f0" }}>
+            <p style={sectionHdr}>Data Summary</p>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+
+              {/* Date coverage */}
+              <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                <span style={{ fontSize: 11, fontWeight: 600, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.06em" }}>Date Coverage</span>
+                <span style={{ fontSize: 13, color: "#334155", fontWeight: 500 }}>
+                  {summary.date_coverage ?? "—"}
+                </span>
+              </div>
+
+              {/* Row count + missing */}
+              <div style={{ display: "flex", gap: 12 }}>
+                <div style={{ flex: 1 }}>
+                  <span style={{ fontSize: 11, fontWeight: 600, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: 2 }}>Rows</span>
+                  <span style={{ fontSize: 13, color: "#334155", fontWeight: 500 }}>{summary.row_count.toLocaleString()}</span>
+                </div>
+                <div style={{ flex: 1 }}>
+                  <span style={{ fontSize: 11, fontWeight: 600, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: 2 }}>Missing</span>
+                  <span style={{ fontSize: 13, color: summary.missing_value_count > 0 ? "#dc2626" : "#16a34a", fontWeight: 600 }}>
+                    {summary.missing_value_count}
+                  </span>
+                </div>
+              </div>
+
+              {/* Warnings */}
+              {summary.warnings.length > 0 && (
+                <div style={{ marginTop: 4 }}>
+                  {summary.warnings.map((w, i) => (
+                    <div key={i} style={{ fontSize: 12, color: "#92400e", background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 6, padding: "6px 10px", marginBottom: 4 }}>
+                      ⚠ {w}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+            </div>
+          </div>
+        )}
+
+      </aside>
+
+      {/* ── MAIN CONTENT ── */}
+      <main style={{ flex: 1, background: "#f8fafc", padding: "24px 28px", overflowY: "auto", minWidth: 0 }}>
+
+        {/* ── SUMMARY METRICS BAR ── */}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16, marginBottom: 24 }}>
+          {[
+            {
+              label: "Last Close",
+              value: metrics?.last_close != null ? `$${metrics.last_close.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "—",
+              color: "#0f172a",
+            },
+            {
+              label: "Period Return",
+              value: metrics?.period_return != null ? `${metrics.period_return > 0 ? "+" : ""}${metrics.period_return.toFixed(2)}%` : "—",
+              color: metrics?.period_return == null ? "#0f172a" : metrics.period_return >= 0 ? "#16a34a" : "#dc2626",
+            },
+            {
+              label: "20d Volatility",
+              value: metrics?.volatility_20d != null ? `${metrics.volatility_20d.toFixed(2)}%` : "—",
+              color: "#0f172a",
+            },
+            {
+              label: "Rows",
+              value: rows.length > 0 ? rows.length.toLocaleString() : "—",
+              color: "#0f172a",
+            },
+          ].map(({ label, value, color }) => (
+            <div key={label} style={{
+              background: "#ffffff",
+              border: "1px solid #e2e8f0",
+              borderRadius: 10,
+              padding: "16px 20px",
+            }}>
+              <p style={{ margin: "0 0 6px 0", fontSize: 11, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.08em" }}>
+                {label}
+              </p>
+              <p style={{ margin: 0, fontSize: 26, fontWeight: 700, color, lineHeight: 1.1 }}>
+                {value}
+              </p>
+            </div>
+          ))}
+        </div>
+
+        {/* Error */}
+        {error && (() => {
+          const cfg = {
+            network:    { bg: "#fef2f2", border: "#ef4444", title: "Connection Error",   icon: "✕", titleColor: "#991b1b", msgColor: "#7f1d1d" },
+            validation: { bg: "#fffbeb", border: "#f59e0b", title: "Invalid Input",       icon: "⚠", titleColor: "#92400e", msgColor: "#78350f" },
+            provider:   { bg: "#fffbeb", border: "#f59e0b", title: "Data Unavailable",    icon: "⚠", titleColor: "#92400e", msgColor: "#78350f" },
+            empty:      { bg: "#eff6ff", border: "#3b82f6", title: "No Data Found",       icon: "ℹ", titleColor: "#1e40af", msgColor: "#1e3a8a" },
+          };
+          const { bg, border, title, icon, titleColor, msgColor } = cfg[error.type] || cfg.network;
+          return (
+            <div style={{ ...card, background: bg, border: `1px solid ${border}`, marginBottom: 20 }}>
+              <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
+                <span style={{ fontSize: 18, lineHeight: 1.3, color: titleColor }}>{icon}</span>
+                <div>
+                  <p style={{ margin: "0 0 4px 0", fontWeight: 700, fontSize: 14, color: titleColor }}>{title}</p>
+                  <p style={{ margin: 0, fontSize: 14, color: msgColor }}>{error.message}</p>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
+
+        {/* Charts */}
+        {hasData && (
+          <>
+            {/* Price */}
+            <div style={card}>
+              <h3 style={{ margin: "0 0 12px 0", fontSize: 22, color: "#0f172a" }}>{ticker} Price</h3>
+              {chartType === "candle" ? (
+                <CandlestickChart
+                  rows={rows}
+                  height={430}
+                  selectedIndicators={selectedIndicators}
+                  indicatorData={indicatorData}
+                />
+              ) : (
+                <ResponsiveContainer width="100%" height={430}>
+                  <LineChart data={chartData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                    <XAxis dataKey="date" hide />
+                    <YAxis domain={["auto", "auto"]} stroke="#94a3b8" />
+                    <Tooltip contentStyle={ttStyle} />
+                    <Legend />
+                    <Line type="monotone" dataKey="close" dot={false} stroke="#3b82f6" name="Close" strokeWidth={1.5} />
+                    {showBB && <Line type="monotone" dataKey="BB_upper"  dot={false} stroke="#a78bfa" name="BB Upper"  strokeDasharray="4 2" strokeWidth={1} />}
+                    {showBB && <Line type="monotone" dataKey="BB_middle" dot={false} stroke="#a78bfa" name="BB Mid"    strokeWidth={1} />}
+                    {showBB && <Line type="monotone" dataKey="BB_lower"  dot={false} stroke="#a78bfa" name="BB Lower"  strokeDasharray="4 2" strokeWidth={1} />}
+                  </LineChart>
+                </ResponsiveContainer>
+              )}
+            </div>
+
+            {/* RSI */}
+            {showRSI && (
+              <div style={card}>
+                <h3 style={{ margin: "0 0 10px 0", fontSize: 20, color: "#0f172a" }}>RSI (14)</h3>
+                <ResponsiveContainer width="100%" height={160}>
+                  <LineChart data={chartData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                    <XAxis dataKey="date" hide />
+                    <YAxis domain={[0, 100]} stroke="#94a3b8" ticks={[0, 30, 50, 70, 100]} />
+                    <Tooltip contentStyle={ttStyle} />
+                    <ReferenceLine y={70} stroke="#ef4444" strokeDasharray="3 3" label={{ value: "70", fill: "#ef4444", fontSize: 12 }} />
+                    <ReferenceLine y={30} stroke="#22c55e" strokeDasharray="3 3" label={{ value: "30", fill: "#22c55e", fontSize: 12 }} />
+                    <Line type="monotone" dataKey="RSI" dot={false} stroke="#38bdf8" strokeWidth={1.5} />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+
+            {/* MACD */}
+            {showMACD && (
+              <div style={card}>
+                <h3 style={{ margin: "0 0 10px 0", fontSize: 20, color: "#0f172a" }}>MACD</h3>
+                <ResponsiveContainer width="100%" height={160}>
+                  <ComposedChart data={chartData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                    <XAxis dataKey="date" hide />
+                    <YAxis stroke="#94a3b8" />
+                    <Tooltip contentStyle={ttStyle} />
+                    <ReferenceLine y={0} stroke="#94a3b8" />
+                    <Bar dataKey="MACD_hist" fill="#94a3b8" name="Histogram" opacity={0.7} />
+                    <Line type="monotone" dataKey="MACD"        dot={false} stroke="#fb7185" name="MACD"   strokeWidth={1.5} />
+                    <Line type="monotone" dataKey="MACD_signal" dot={false} stroke="#f59e0b" name="Signal" strokeWidth={1.5} />
+                    <Legend />
+                  </ComposedChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+
+            {/* Volume */}
+            <div style={card}>
+              <h3 style={{ margin: "0 0 10px 0", fontSize: 20, color: "#0f172a" }}>{ticker} Volume</h3>
+              <ResponsiveContainer width="100%" height={180}>
+                <BarChart data={chartData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                  <XAxis dataKey="date" hide />
+                  <YAxis stroke="#94a3b8" />
+                  <Tooltip contentStyle={ttStyle} />
+                  <Bar dataKey="volume" fill="#3b82f6" opacity={0.6} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </>
+        )}
+
+        {/* Empty state */}
+        {!hasData && !loading && !error && (
+          <div style={{ ...card, color: "#64748b" }}>Enter a ticker and click Analyze.</div>
+        )}
+
+        {/* Compare chart — rendered in main content area */}
         {compareData && compareChartData.length > 0 && (
-          <div style={{ marginTop: 14 }}>
-            <div style={{ fontSize: 14, color: "#6b7280", marginBottom: 8 }}>Normalized to 100 at start of period</div>
+          <div style={card}>
+            <h3 style={{ margin: "0 0 6px 0", fontSize: 20, color: "#0f172a" }}>Compare Tickers</h3>
+            <div style={{ fontSize: 13, color: "#64748b", marginBottom: 12 }}>Normalized to 100 at start of period</div>
             <ResponsiveContainer width="100%" height={280}>
               <LineChart data={compareChartData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
                 <XAxis dataKey="date" hide />
-                <YAxis stroke="#6b7280" />
+                <YAxis stroke="#94a3b8" />
                 <Tooltip contentStyle={ttStyle} />
-                <ReferenceLine y={100} stroke="#6b7280" strokeDasharray="3 3" />
+                <ReferenceLine y={100} stroke="#94a3b8" strokeDasharray="3 3" />
                 <Legend />
                 {compareData.tickers.map((t, i) => (
                   <Line key={t} type="monotone" dataKey={t} dot={false}
-                    stroke={COMPARE_COLORS[i%5]} name={t} strokeWidth={1.8} />
+                    stroke={COMPARE_COLORS[i % 5]} name={t} strokeWidth={1.8} />
                 ))}
               </LineChart>
             </ResponsiveContainer>
           </div>
         )}
-      </div>
+
+      </main>
     </div>
   );
 }
